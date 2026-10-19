@@ -1,5 +1,7 @@
 # Headphones Battery
 
+[![test](https://github.com/lilter96/gnome-headphones-battery/actions/workflows/test.yml/badge.svg)](https://github.com/lilter96/gnome-headphones-battery/actions/workflows/test.yml)
+
 A GNOME Shell extension that shows the battery of your Bluetooth headphones in
 the top bar, and how long the music will actually last. The time comes from a
 drain model it learns on your headset. It also has a Sims cat.
