@@ -10,7 +10,7 @@ import System from 'system';
 
 const [src, dst] = ARGV.map(p => GLib.canonicalize_filename(p, null));
 // The cat is random, so every capture differs: pick the nicest moment by eye.
-const PICK = {playing: 5, low: 0, dozing: 3};
+const PICK = {playing: 3, low: 0, dozing: 1};
 const R_CARD = 52;      // .hp-menu radius at 2x
 const R_PANEL = 20;
 const decoder = new TextDecoder();

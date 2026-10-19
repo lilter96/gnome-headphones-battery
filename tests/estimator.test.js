@@ -23,9 +23,10 @@ test('unknown models fall back to a 30 h prior', () => {
     near(100 / (theta[1] + theta[2] * HALF_VOLUME), 30, 0.3);
 });
 
-test('HFP level R means [R-10, R), LE level L means [L, L+1)', () => {
-    deepEqual(interval('hfp', 20), [10, 20]);
-    deepEqual(interval('hfp', 10), [0, 10]);
+test('HFP level R means [R-9, R+1), LE level L means [L, L+1)', () => {
+    deepEqual(interval('hfp', 20), [11, 21]);
+    deepEqual(interval('hfp', 10), [1, 11]);
+    deepEqual(interval('hfp', 100), [91, 100]);
     deepEqual(interval('le', 13), [13, 14]);
     deepEqual(interval('le', 100), [100, 100]);
 });
@@ -39,9 +40,9 @@ test('a fresh HFP reading is taken from the middle of its 10% step', () => {
     const e = new Estimator();
     e.attach(ID, MODEL, 'hfp', 20);
     const est = e.estimate(ID, 'hfp', {playing: false, u: HALF_VOLUME});
-    near(est.soc, 15, 1e-9);
-    equal(est.lo, 10);
-    equal(est.hi, 20);
+    near(est.soc, 16, 1e-9);
+    equal(est.lo, 11);
+    equal(est.hi, 21);
 });
 
 test('a full battery lasts about the tested hours with the prior', () => {

@@ -10,7 +10,7 @@ drain model it learns on your headset. It also has a Sims cat.
   <img src="docs/media/demo.webp" width="320" alt="The popup opening: the ring sweeps to 72%, the plumbob drops in, the cat bobs to the music and sends a heart when clicked">
 </p>
 
-![Three states of the popup: listening at 72% with a green plumbob, 2% and orange with a tired cat, and an approximate 15% while the cat dozes](docs/media/cards.png)
+![Three states of the popup: listening at 72% with a green plumbob, 2% and orange with a tired cat, and an approximate 16% while the cat dozes](docs/media/cards.png)
 
 ![The top bar item in every mood: green, yellow, orange and red plumbobs, then the dozing cat](docs/media/panel.png)
 
@@ -24,8 +24,8 @@ For my JBL Tune 520BT, GNOME showed "20%" and nothing more. That number was a
 lie in two ways:
 
 * **It is a 10% bucket.** Over HFP a headset reports its battery as
-  `AT+IPHONEACCEV` 0…9, and PipeWire shows it as `(v + 1) × 10`. So "20%"
-  really means anywhere from 10% to 19%.
+  `AT+IPHONEACCEV` 0…9, and PipeWire shows it as `(v + 1) × 10`. This headset
+  rounds up, so "20%" really means anywhere from 11% to 20%.
 * **A percentage is not a time.** These headphones last about 60 hours. At 20%
   that is 12 hours of music, or far longer if they sit connected and silent.
 
@@ -35,8 +35,12 @@ lie in two ways:
 `JBL TUNE520BT-LE`) with the standard Battery Service (`0x180F`), which reports
 1% steps. The extension finds that companion by name and service UUID. It is
 not paired, so BlueZ never reconnects it on its own: the extension keeps it
-connected while the headset is, with backoff. Without it, the extension uses
-the HFP bucket and marks the level as approximate (`≈15%`).
+connected while the headset is, with backoff. The headset also never sends
+level notifications: BlueZ subscribes, nothing arrives, and the level it read
+on connect goes stale for hours. So the extension reads the Battery Level
+characteristic (`0x2A19`) itself, once a minute and whenever the popup opens.
+Without the companion, the extension uses the HFP bucket and marks the level
+as approximate (`≈16%`).
 
 **Remaining time that learns.** The drain rate, in % per hour, is modelled as
 

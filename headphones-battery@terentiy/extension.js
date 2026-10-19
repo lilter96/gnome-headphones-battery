@@ -22,8 +22,10 @@ const AUDIO_KINDS = new Set([
     UPower.DeviceKind.OTHER_AUDIO,
 ]);
 const BATTERY_UUID = '0000180f-0000-1000-8000-00805f9b34fb';
+const LEVEL_UUID = '00002a19-0000-1000-8000-00805f9b34fb';
 const TICK_SECONDS = 15;
 const SAVE_EVERY_TICKS = 4;
+const LE_POLL_TICKS = 4;
 const LE_RETRY_MIN = 30;
 const LE_RETRY_MAX = 300;
 
@@ -97,10 +99,12 @@ export default class HeadphonesBatteryExtension extends Extension {
             if (open)
                 this._refresh();
             for (const entry of this._audio.values()) {
-                if (open)
+                if (open) {
                     entry.card.hero.play();
-                else
+                    this._pollLe(entry);
+                } else {
                     entry.card.hero.pause();
+                }
             }
         });
 
@@ -180,6 +184,9 @@ export default class HeadphonesBatteryExtension extends Extension {
             leBusy: false,
             leBackoff: LE_RETRY_MIN,
             leRetryAt: 0,
+            leChar: undefined,  // Battery Level characteristic: undefined = not looked up, null = none
+            leFresh: true,      // the next LE reading starts a new segment (attach, not observe)
+            lePolling: false,
         };
         this._estimator.attach(entry.id, entry.model, 'hfp', Math.round(dev.percentage));
         entry.notifyId = dev.connect('notify::percentage', () => {
@@ -233,14 +240,12 @@ export default class HeadphonesBatteryExtension extends Extension {
                 const dev = other.dev;
                 entry.companion = {
                     path, dev,
-                    notifyId: dev.connect('notify::percentage', () => {
-                        this._observe(entry, 'le', Math.round(dev.percentage));
-                    }),
+                    notifyId: dev.connect('notify::percentage', () => this._pollLe(entry)),
                 };
                 this._estimator.state.companions[model] = entry.id;
-                this._estimator.attach(entry.id, entry.model, 'le', Math.round(dev.percentage));
+                // UPower's level is whatever BlueZ read on connect: wait for our own read.
                 entry.leBackoff = LE_RETRY_MIN;
-                this._refresh();
+                this._ensureLe(entry);
                 break;
             }
         }
@@ -251,6 +256,8 @@ export default class HeadphonesBatteryExtension extends Extension {
             return;
         entry.companion.dev.disconnect(entry.companion.notifyId);
         entry.companion = null;
+        entry.leChar = undefined;
+        entry.leFresh = true;
     }
 
     _observe(entry, src, level) {
@@ -266,10 +273,14 @@ export default class HeadphonesBatteryExtension extends Extension {
         this._refresh();
     }
 
-    // Keep the BLE companion connected while the headphones are connected.
-    // It is not paired, so BlueZ never reconnects it on its own.
+    // Keep the BLE companion connected while the headphones are connected, and
+    // find its Battery Level characteristic. It is not paired, so BlueZ never
+    // reconnects it on its own.
     _ensureLe(entry) {
-        if (entry.companion || entry.leBusy || monotonic() < entry.leRetryAt)
+        if (entry.leBusy || entry.leChar !== undefined)
+            return;
+        // Reconnecting backs off; looking up a linked companion does not.
+        if (!entry.companion && monotonic() < entry.leRetryAt)
             return;
         entry.leBusy = true;
 
@@ -290,17 +301,32 @@ export default class HeadphonesBatteryExtension extends Extension {
                         const d = ifaces['org.bluez.Device1'];
                         if (d && d.Address !== entry.id && (d.Alias ?? '').startsWith(entry.model) &&
                             (d.UUIDs ?? []).includes(BATTERY_UUID)) {
-                            target = {path, connected: d.Connected};
+                            target = {path, connected: d.Connected, resolved: d.ServicesResolved};
                             break;
                         }
+                    }
+                    if (target) {
+                        target.level = Object.entries(objects)
+                            .filter(([path, ifaces]) => path.startsWith(`${target.path}/`) &&
+                                ifaces['org.bluez.GattCharacteristic1']?.UUID === LEVEL_UUID)
+                            .map(([path]) => path)
+                            .sort()[0] ?? null;
                     }
                 } catch (e) {
                     if (cancelled(e))
                         return;
                     console.warn(`[${this.uuid}] BlueZ query failed: ${e.message}`);
                 }
-                if (!target || target.connected || !this._audio.has(entry.path)) {
+                if (!target || !this._audio.has(entry.path)) {
                     finish(!!target);
+                    return;
+                }
+                if (target.connected) {
+                    finish(true);
+                    if (entry.companion && target.resolved) {
+                        entry.leChar = target.level;
+                        this._pollLe(entry);
+                    }
                     return;
                 }
                 conn.call('org.bluez', target.path, 'org.bluez.Device1', 'Connect',
@@ -316,6 +342,46 @@ export default class HeadphonesBatteryExtension extends Extension {
                         }
                     });
             });
+    }
+
+    // The JBL never notifies its BLE level: BlueZ subscribes, nothing comes, and
+    // the value it read on connect goes stale for hours. So read it ourselves.
+    _pollLe(entry) {
+        if (!entry.companion || entry.leChar === undefined || entry.lePolling)
+            return;
+        if (entry.leChar === null) {
+            this._leLevel(entry, Math.round(entry.companion.dev.percentage));
+            return;
+        }
+        entry.lePolling = true;
+        Gio.DBus.system.call('org.bluez', entry.leChar, 'org.bluez.GattCharacteristic1',
+            'ReadValue', new GLib.Variant('(a{sv})', [{}]), new GLib.VariantType('(ay)'),
+            Gio.DBusCallFlags.NONE, 10000, this._cancellable, (conn, res) => {
+                entry.lePolling = false;
+                let level;
+                try {
+                    [[level]] = conn.call_finish(res).deepUnpack();
+                } catch (e) {
+                    if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
+                        return;
+                    entry.leChar = undefined;   // look it up again on the next tick
+                    return;
+                }
+                if (this._audio.has(entry.path) && entry.companion && level <= 100)
+                    this._leLevel(entry, level);
+            });
+    }
+
+    _leLevel(entry, level) {
+        if (!entry.leFresh) {
+            this._observe(entry, 'le', level);
+            return;
+        }
+        entry.leFresh = false;
+        this._account();
+        this._estimator.attach(entry.id, entry.model, 'le', level);
+        this._save();
+        this._refresh();
     }
 
     // --- accounting ------------------------------------------------------
@@ -392,9 +458,13 @@ export default class HeadphonesBatteryExtension extends Extension {
 
     _tick() {
         this._account();
-        for (const entry of this._audio.values())
+        const poll = ++this._ticks % LE_POLL_TICKS === 0;
+        for (const entry of this._audio.values()) {
             this._ensureLe(entry);
-        if (++this._ticks % SAVE_EVERY_TICKS === 0)
+            if (poll)
+                this._pollLe(entry);
+        }
+        if (this._ticks % SAVE_EVERY_TICKS === 0)
             this._save();
         this._refresh();
     }
@@ -429,7 +499,7 @@ export default class HeadphonesBatteryExtension extends Extension {
         const now = monotonic();
         let main = null;
         for (const entry of this._audio.values()) {
-            const precise = !!entry.companion;
+            const precise = !!entry.companion && !entry.leFresh;
             const sink = entry.sink ?? this._sinkState(this._findSink(entry.id));
             const playing = sink.mode === 'play';
             const est = this._estimator.estimate(entry.id, precise ? 'le' : 'hfp',

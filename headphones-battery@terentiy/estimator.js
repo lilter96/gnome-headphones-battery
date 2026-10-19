@@ -13,8 +13,9 @@
 //
 // Level sources:
 //   'le'  - BLE Battery Service, 1% resolution: level L means [L, L+1).
-//   'hfp' - AT+IPHONEACCEV 0..9, which PipeWire shows as (v+1)·10, so a shown
-//           level R really means [R-10, R). "20%" in GNOME is 10-19%.
+//   'hfp' - AT+IPHONEACCEV 0..9, which PipeWire shows as (v+1)·10. The headset
+//           rounds up (seen at once: BLE 13% with "20%", BLE 10% with "10%"),
+//           so a shown level R means BLE R-9…R, i.e. [R-9, R+1). "20%" is 11-20%.
 
 const LAMBDA = 0.95;
 const SIGMA = {le: 0.35, hfp: 1.5};
@@ -46,7 +47,7 @@ const newSeg = (level, exact) => ({level, exact, tIdle: 0, tPlay: 0, uInt: 0, tU
 
 export function interval(src, level) {
     return src === 'hfp'
-        ? [Math.max(level - 10, 0), level]
+        ? [Math.max(level - 9, 0), Math.min(level + 1, 100)]
         : [level, Math.min(level + 1, 100)];
 }
 
