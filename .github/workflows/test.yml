@@ -1,0 +1,17 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gjs:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install gjs
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gjs gir1.2-gdkpixbuf-2.0
+      - name: Check metadata
+        run: python3 -c "import json; m = json.load(open('headphones-battery@terentiy/metadata.json')); assert m['uuid'] == 'headphones-battery@terentiy'"
+      - name: Unit tests
+        run: gjs -m tests/run.js

@@ -1,0 +1,14 @@
+{
+  "uuid": "headphones-battery@terentiy",
+  "name": "Headphones Battery",
+  "description": "Заряд Bluetooth-наушников и примерное оставшееся время работы в верхней панели. Скорость разряда замеряется по факту и запоминается.",
+  "shell-version": [
+    "46"
+  ],
+  "session-modes": [
+    "user",
+    "unlock-dialog"
+  ],
+  "version": 1,
+  "url": "https://github.com/lilter96/gnome-headphones-battery"
+}

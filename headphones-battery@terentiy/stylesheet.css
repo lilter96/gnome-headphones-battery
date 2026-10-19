@@ -1,0 +1,102 @@
+/* Panel: the glyph and two labels, the time a step quieter than the charge. */
+
+.hp-panel-box {
+  spacing: 5px;
+}
+
+.hp-panel-pct,
+.hp-panel-time {
+  font-feature-settings: "tnum";
+}
+
+/* Popup: a graphite card, Apple-like, independent of the shell theme. */
+
+.popup-menu.hp-menu .popup-menu-content {
+  background-color: rgba(29, 30, 37, 0.985);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 26px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+  padding: 14px 10px 8px;
+}
+
+.hp-card {
+  width: 292px;
+  font-family: "Inter", "Ubuntu Sans", sans-serif;
+}
+
+.hp-pct {
+  font-family: "Inter Display", "Inter", sans-serif;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.6px;
+  font-feature-settings: "tnum";
+  color: #ffffff;
+  margin-top: 2px;
+}
+
+.hp-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  margin-top: 1px;
+}
+
+.hp-status {
+  font-size: 12px;
+  color: rgba(235, 235, 245, 0.6);
+  margin-top: 2px;
+}
+
+.hp-group {
+  background-color: rgba(255, 255, 255, 0.065);
+  border-radius: 16px;
+  margin: 16px 4px 0;
+  padding: 0 14px;
+}
+
+.hp-row {
+  padding: 10px 0;
+  spacing: 12px;
+}
+
+.hp-row-sep {
+  height: 1px;
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.hp-row-label {
+  font-size: 13px;
+  color: rgba(235, 235, 245, 0.6);
+}
+
+.hp-row-value {
+  font-size: 13px;
+  font-weight: 600;
+  font-feature-settings: "tnum";
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.hp-row-sub {
+  font-size: 11px;
+  font-feature-settings: "tnum";
+  color: rgba(235, 235, 245, 0.45);
+  margin-top: 1px;
+}
+
+.hp-note {
+  font-size: 11px;
+  color: rgba(235, 235, 245, 0.4);
+  margin: 10px 18px 4px;
+}
+
+.popup-menu.hp-menu .hp-action.popup-menu-item {
+  font-family: "Inter", "Ubuntu Sans", sans-serif;
+  font-size: 13px;
+  border-radius: 12px;
+  margin: 4px 4px 0;
+  padding: 9px 14px;
+}
+
+.popup-menu.hp-menu .popup-separator-menu-item {
+  margin: 10px 18px;
+}
