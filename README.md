@@ -136,6 +136,10 @@ tools/media/capture.sh         # re-render docs/media (needs a connected headset
 * The time is only as good as the prior until the headset has dropped a few
   percent while you listen. The popup says which one you are looking at.
 
+A sibling of [gnome-dota-time](https://github.com/lilter96/gnome-dota-time):
+the same spring animation and the same approach to a character, with Roshan
+keeping count of your Dota evenings.
+
 ## License
 
 [MIT](LICENSE)
