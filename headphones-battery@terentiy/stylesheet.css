@@ -39,12 +39,14 @@
   font-weight: 600;
   color: rgba(255, 255, 255, 0.92);
   margin-top: 1px;
+  max-width: 272px;
 }
 
 .hp-status {
   font-size: 12px;
   color: rgba(235, 235, 245, 0.6);
   margin-top: 2px;
+  max-width: 272px;
 }
 
 .hp-group {
@@ -81,6 +83,11 @@
   font-feature-settings: "tnum";
   color: rgba(235, 235, 245, 0.45);
   margin-top: 1px;
+  max-width: 190px;
+}
+
+.hp-row-stale .hp-row-value {
+  color: rgba(235, 235, 245, 0.5);
 }
 
 .hp-note {

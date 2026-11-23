@@ -10,10 +10,12 @@ import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 import {
-    GLYPH, HERO, MOODS, PARTICLE_BOX, Pet, SCENE, Spring,
+    GLYPH, HERO, MOODS, NEUTRAL_COLOR, PARTICLE_BOX, Pet, SCENE, Spring,
     aimColor, drawGlyph, drawParticle, fromOklch, particleXf, toOklch,
 } from './pet.js';
-import {formatDuration} from './estimator.js';
+import {presentDevice} from './presentation.js';
+
+export {formatLong, plural} from './presentation.js';
 
 const DEG = 180 / Math.PI;
 const now = () => GLib.get_monotonic_time() / 1e6;
@@ -31,39 +33,24 @@ function followScale(actor, callback) {
     callback(ctx.scale_factor);
 }
 
-export function plural(n, one, few, many) {
-    const d = n % 10, h = n % 100;
-    if (d === 1 && h !== 11)
-        return one;
-    if (d >= 2 && d <= 4 && (h < 12 || h > 14))
-        return few;
-    return many;
-}
-
-export function formatLong(hours) {
-    if (hours >= 48) {
-        const d = Math.round(hours / 24);
-        return `${d} ${plural(d, 'день', 'дня', 'дней')}`;
-    }
-    return formatDuration(hours);
-}
-
 // Calls back on every frame of the actor's monitor until stopped or the
 // callback returns false.
 class FrameLoop {
     constructor(actor, callback) {
         this._timeline = new Clutter.Timeline({actor, duration: 1000, repeat_count: -1});
-        this._timeline.connect('new-frame', () => {
+        this._frameId = this._timeline.connect('new-frame', () => {
+            if (!this._timeline)
+                return;
             const t = now();
-            const dt = Math.min(t - this._last, 0.05);
+            const dt = clamp(t - this._last, 0, 0.05);
             this._last = t;
             if (callback(dt) === false)
-                this._timeline.stop();
+                this.stop();
         });
     }
 
     start() {
-        if (this._timeline.is_playing())
+        if (!this._timeline || this._timeline.is_playing())
             return;
         this._last = now();
         this._timeline.start();
@@ -75,6 +62,9 @@ class FrameLoop {
 
     destroy() {
         this.stop();
+        if (this._timeline && this._frameId)
+            this._timeline.disconnect(this._frameId);
+        this._frameId = 0;
         this._timeline = null;
     }
 }
@@ -221,6 +211,17 @@ class HeroView extends St.Widget {
         this.pet.pointer(null);
     }
 
+    // New readings must update even while reduced motion has stopped the loop.
+    refresh() {
+        this.pet.reduced = !animationsEnabled();
+        if (this.pet.reduced || !this.mapped) {
+            this.pet.settle();
+            this._sync();
+        } else {
+            this._loop.start();
+        }
+    }
+
     vfunc_motion_event(event) {
         const [x, y] = event.get_coords();
         const [ok, lx, ly] = this.transform_stage_point(x, y);
@@ -273,18 +274,21 @@ class PanelGlyph extends St.DrawingArea {
         this.connect('destroy', () => this._loop.destroy());
     }
 
-    set({mood, playing, sleeping}) {
+    set({mood, playing = false, sleeping = false, batteryKnown = true,
+        estimateKnown = true, est = undefined}) {
         const s = this._s;
-        aimColor([s.L, s.C, s.h], MOODS[mood].color);
+        const known = batteryKnown && estimateKnown && est !== null &&
+            Number.isInteger(mood) && !!MOODS[mood];
+        aimColor([s.L, s.C, s.h], known ? MOODS[mood].color : NEUTRAL_COLOR);
         s.open.tune(sleeping ? 2 : 0.35, sleeping ? 1 : 0.55).to(sleeping ? 0 : 1);
         // Music starts: one nod, about 10° and 1.5 px, then back to calm.
         if (playing && !this._playing) {
             s.roll.kick(-3.4);
             s.dy.kick(40);
         }
-        if (mood === 3 && this._mood !== 3)
+        if (known && mood === 3 && this._mood !== 3)
             s.plumb.kick(5);
-        this._mood = mood;
+        this._mood = known ? mood : -1;
         this._playing = playing;
         this._sleeping = sleeping;
         this._kick();
@@ -376,6 +380,9 @@ class RollingLabel extends St.Widget {
             this._label.text = text;
             return;
         }
+        // Bursty D-Bus updates must not leave an unbounded trail of old labels.
+        if (this._out.length >= 3)
+            this._settle();
         const h = Math.max(this.height, 12) * 0.8;
         const old = this._label;
         this._out.push({
@@ -437,6 +444,7 @@ function makeRow(name) {
     const right = new St.BoxLayout({vertical: true, x_align: Clutter.ActorAlign.END});
     const value = new St.Label({style_class: 'hp-row-value', x_align: Clutter.ActorAlign.END});
     const sub = new St.Label({style_class: 'hp-row-sub', x_align: Clutter.ActorAlign.END});
+    sub.clutter_text.ellipsize = Pango.EllipsizeMode.END;
     right.add_child(value);
     right.add_child(sub);
     box.add_child(right);
@@ -449,9 +457,11 @@ class DeviceCard extends St.BoxLayout {
     _init(model) {
         super._init({vertical: true, style_class: 'hp-card'});
         this.pet = new Pet({reducedMotion: !animationsEnabled()});
+        this.pet.update({batteryKnown: false, hours: null});
+        this.pet.settle();
         this.hero = new HeroView(this.pet);
         this.hero.onFrame = () => this._syncPct();
-        this._pctValue = 0;
+        this._pctValue = null;
         this._pctPrefix = '';
         this._ringGoal = 0;
 
@@ -459,6 +469,8 @@ class DeviceCard extends St.BoxLayout {
         this._pct = new St.Label({style_class: 'hp-pct', x_align: center});
         this._name = new St.Label({style_class: 'hp-name', x_align: center, text: model});
         this._status = new St.Label({style_class: 'hp-status', x_align: center});
+        this._name.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+        this._status.clutter_text.line_wrap = true;
 
         this._group = new St.BoxLayout({vertical: true, style_class: 'hp-group'});
         this._rows = {music: makeRow('Музыка'), quiet: makeRow('Без звука'), rate: makeRow('Расход')};
@@ -468,56 +480,71 @@ class DeviceCard extends St.BoxLayout {
             this._group.add_child(r.box);
         });
 
+        // A fixed actor tree avoids recreating/reparenting rows on every tick.
+        this._components = new St.BoxLayout({vertical: true, style_class: 'hp-group'});
+        this._compRows = {};
+        for (const [i, [key, label]] of [['left', 'Левый'], ['right', 'Правый'], ['case', 'Кейс']].entries()) {
+            if (i > 0)
+                this._components.add_child(new St.Widget({style_class: 'hp-row-sep', x_expand: true}));
+            const row = this._compRows[key] = makeRow(label);
+            this._components.add_child(row.box);
+        }
+        this._components.visible = false;
+
         this._note = new St.Label({style_class: 'hp-note'});
         this._note.clutter_text.line_wrap = true;
         this._note.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
 
-        for (const a of [this.hero, this._pct, this._name, this._status, this._group, this._note])
+        for (const a of [this.hero, this._pct, this._name, this._status, this._components, this._group, this._note])
             this.add_child(a);
+        this._syncPct();
     }
 
-    // info: estimate plus {precise, playing, sleeping, volume, idleFor, mood}
-    update(info) {
-        const {est, precise} = info;
+    // Battery observation is independent of the optional runtime prediction.
+    setName(name) {
+        this._name.text = typeof name === 'string' ? name : 'Наушники';
+    }
+
+    update(info = {}) {
+        info ??= {};
+        const view = presentDevice(info);
+        this._pctPrefix = view.prefix;
+        this._pctValue = view.value;
+        this._ringGoal = view.ring.precise ? view.ring.level : view.ring.lo;
+        this._status.text = view.status;
+        this._note.text = view.note;
+        this._pct.accessible_name = view.batteryKnown ? `Заряд: ${view.pctText}` : view.status;
+        this._components.visible = view.componentsVisible;
+        for (const component of view.components) {
+            const row = this._compRows[component.key];
+            row.value.text = component.value;
+            row.sub.text = component.sub;
+            if (component.stale)
+                row.box.add_style_class_name('hp-row-stale');
+            else
+                row.box.remove_style_class_name('hp-row-stale');
+            row.box.accessible_name = `${component.label}: ${component.value}, ${component.sub}`;
+        }
+        for (const [key, content] of Object.entries(view.rows)) {
+            this._rows[key].value.text = content.value;
+            this._rows[key].sub.text = content.sub;
+        }
         this.pet.update({
-            level: est.level,
-            lo: est.lo,
-            hi: est.hi,
-            precise,
-            hours: est.hours,
-            playing: info.playing,
-            volume: info.volume,
-            idleFor: info.idleFor,
+            ...view.ring,
+            hours: view.hours,
+            playing: !!info.playing,
+            volume: Number.isFinite(info.volume) ? clamp(info.volume, 0, 1) : 0,
+            idleFor: Number.isFinite(info.idleFor) ? Math.max(info.idleFor, 0) : 0,
         });
-
-        this._pctPrefix = precise ? '' : '≈';
-        this._pctValue = precise ? est.level : Math.round(est.soc);
-        this._ringGoal = precise ? est.level : est.lo;
+        this.hero.refresh();
         this._syncPct();
-
-        this._status.text = est.hours < 1 / 3 ? 'Почти разряжены'
-            : est.hours < 1 ? 'Пора на зарядку'
-                : info.playing ? 'Слушает музыку'
-                    : info.sleeping ? 'Дремлет' : 'Ждёт музыку';
-
-        const r = this._rows;
-        r.music.value.text = formatDuration(est.hours);
-        r.music.sub.text = `от ${formatDuration(est.hoursMin)} до ${formatDuration(est.hoursMax)}`;
-        r.quiet.value.text = formatLong(est.standby);
-        r.quiet.sub.text = 'подключены, звука нет';
-        r.rate.value.text = `${est.rate.toFixed(1).replace('.', ',')} % в час`;
-        r.rate.sub.text = `при громкости ${Math.round(Math.cbrt(est.uRef) * 100)}%`;
-
-        const notes = [];
-        if (!precise)
-            notes.push('Наушники сообщают заряд шагом в 10%, поэтому он примерный.');
-        notes.push(est.n
-            ? `Прогноз уточнён по ${est.n} ${plural(est.n, 'замеру', 'замерам', 'замерам')} разряда.`
-            : 'Прогноз пока по независимым тестам, уточнится после часа музыки.');
-        this._note.text = notes.join(' ');
     }
 
     _syncPct() {
+        if (this._pctValue === null) {
+            this._pct.text = '—';
+            return;
+        }
         // the pet sets its own targets on the next frame, so measure against the estimate
         const goal = this._ringGoal;
         const progress = goal > 0 ? clamp(this.pet.s.ring.x / goal, 0, 1) : 1;

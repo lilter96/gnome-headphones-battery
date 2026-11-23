@@ -5,13 +5,16 @@ on:
   pull_request:
 
 jobs:
-  gjs:
+  check:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
-      - name: Install gjs
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gjs gir1.2-gdkpixbuf-2.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install test and build dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gjs gir1.2-gdkpixbuf-2.0 libbluetooth-dev gcc make shellcheck dbus
       - name: Check metadata
         run: python3 -c "import json; m = json.load(open('headphones-battery@terentiy/metadata.json')); assert m['uuid'] == 'headphones-battery@terentiy'"
-      - name: Unit tests
-        run: gjs -m tests/run.js
+      - name: Full validation
+        run: make check

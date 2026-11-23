@@ -174,13 +174,19 @@ test('reset returns to the prior', () => {
     equal(d.n, 0);
 });
 
-test('state survives a JSON round trip; old formats are ignored', () => {
+test('calibration survives a JSON round trip; readings require a new observation', () => {
     const e = exactLe(new Estimator());
     e.account(ID, 1.5, 'play', 0.4);
     e.observe(ID, MODEL, 'le', 48);
     e.account(ID, 0.2, 'idle');
     const restored = new Estimator(JSON.parse(JSON.stringify(e.state)));
-    deepEqual(restored.estimate(ID, 'le', {playing: true, u: 0.4}), e.estimate(ID, 'le', {playing: true, u: 0.4}));
+    // A previous process's reading must not become a current prediction.
+    equal(restored.estimate(ID, 'le', {playing: true, u: 0.4}), null);
+    deepEqual(restored.state.devices[ID].theta, e.state.devices[ID].theta);
+    deepEqual(restored.state.devices[ID].P, e.state.devices[ID].P);
+    equal(restored.state.devices[ID].n, e.state.devices[ID].n);
+    restored.attach(ID, MODEL, 'le', 48);
+    assert(restored.estimate(ID, 'le', {playing: true, u: 0.4}) !== null);
     deepEqual(new Estimator({version: 1, devices: {[ID]: {}}}).state.devices, {});
 });
 

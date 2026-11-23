@@ -1,0 +1,10 @@
+{
+  "name": "headphones-battery",
+  "version": "4.0.0",
+  "private": true,
+  "type": "module",
+  "description": "GNOME Shell 46 headphones battery monitor; no npm runtime dependencies",
+  "scripts": {
+    "test": "make test"
+  }
+}

@@ -31,6 +31,17 @@ lie in two ways:
 
 ## How it works
 
+**AirPods Pro.** Version 4 reads left, right and case battery percentages over
+Apple Accessory Protocol (AAP), through a source-built native L2CAP helper.
+Each discharging earbud has its own learned playback estimate; the shorter
+estimate drives the panel. Charging earbuds and the case do not drive playback
+predictions. Last-known percentages remain visible with their measurement age
+when a component stops reporting, and survive reconnection and restarts.
+Open the case near the computer to obtain its initial reading. The extension
+never invents a percentage for a component that has not reported one.
+See [the protocol and persistence details](docs/PROTOCOL.md).
+
+
 **A precise level.** Many headsets have a second, Bluetooth LE side (here
 `JBL TUNE520BT-LE`) with the standard Battery Service (`0x180F`), which reports
 1% steps. The extension finds that companion by name and service UUID. It is
@@ -95,46 +106,59 @@ rate = a·[idle] + b·[playing] + c·[playing]·u,    u = volume³
 
 GNOME Shell 46 (tested on Ubuntu 24.04).
 
+Build dependencies: GCC and BlueZ headers (`libbluetooth-dev` on Ubuntu).
+
 ```sh
 git clone https://github.com/lilter96/gnome-headphones-battery
 cd gnome-headphones-battery
-gnome-extensions pack headphones-battery@terentiy \
-    --extra-source=estimator.js --extra-source=pet.js --extra-source=ui.js
-gnome-extensions install --force headphones-battery@terentiy.shell-extension.zip
+make install
 ```
 
-Restart the shell (X11: <kbd>Alt</kbd>+<kbd>F2</kbd>, `r`; Wayland: log out and
-back in), then run `gnome-extensions enable headphones-battery@terentiy`.
+The installer compiles the helper, copies only runtime files and retains the
+previous installation outside the extensions directory. It does not modify
+learned statistics or grant capabilities. No sudo is needed for installation.
+Restart GNOME Shell after installation (X11: <kbd>Alt</kbd>+<kbd>F2</kbd>, `r`;
+Wayland: log out and back in), then enable it:
 
-The learned model lives in `~/.local/state/headphones-battery/state.json`.
-*Сбросить статистику разряда* (reset discharge statistics) in the popup
-returns it to the prior.
+```sh
+gnome-extensions enable headphones-battery@terentiy
+make doctor
+```
+
+The learned models and last-known component readings live in
+`~/.local/state/headphones-battery/state.json`. The reset action in the popup
+resets discharge calibration. AAP needs the paired AirPods to be connected.
 
 ## Development
 
+Development dependencies: Node.js 24, GJS, GCC, BlueZ headers, ShellCheck,
+D-Bus and GdkPixbuf introspection data.
+
 ```sh
-gjs -m tests/run.js            # 36 tests, no GNOME Shell needed
-tools/media/capture.sh         # re-render docs/media (needs a connected headset)
+make check                    # JS/GJS, native, sanitizers, static checks, installer
+make test                     # tests without sanitizers/static analysis
+tools/media/capture.sh        # documentation renderer (needs a connected headset)
 ```
 
-* **Unit tests:** `estimator.js` and `pet.js` are pure and run under plain
-  `gjs`. The tests cover the estimator's interval logic, learning on a
-  simulated discharge, the bounds and the persistence, plus the spring physics,
-  OKLCH round trips, the moods, reduced motion, the redraw budget, and
-  pixel-level checks of the rendered scene and panel glyph.
-* **Media capture:** `capture.sh` runs a headless GNOME Shell with its own
-  session bus, dconf and XDG dirs, so your session is never touched. It feeds
-  the card demo states and screenshots them. The popup is 98.5% opaque, so the
-  composer refuses any frame where something from the desktop shows through.
+The AirPods suites include source arbitration, per-component history and
+forecasts, actual extension orchestration with Shell mocks, real GJS
+subprocesses, private D-Bus, atomic persistence and isolated install/rollback.
+Native tests use socketpairs and synthetic protocol frames. They do not contact
+Bluetooth hardware. The original estimator, pet animation and pixel-level
+rendering tests remain part of `make check`.
 
 ## Limitations
 
-* The UI is in Russian only.
-* Only tested with a JBL Tune 520BT. Other headsets get the level UPower
-  reports and a generic prior. The precise level needs an LE companion with
-  the Battery Service.
-* The time is only as good as the prior until the headset has dropped a few
-  percent while you listen. The popup says which one you are looking at.
+* The UI is in Russian only; GNOME Shell 46 is supported.
+* Live reception and cached display were verified with the connected AirPods Pro
+  on 2026-11-23. Other AirPods generations and firmware remain unverified.
+* A closed or out-of-range case may stop transmitting its own charge and the
+  charge of a stored earbud. The last received values are shown with their age,
+  not presented as live measurements.
+* Playback time starts from an approximate family prior and improves with
+  observed discharge; it depends on listening mode, volume and battery health.
+* JBL Tune 520BT retains its standard LE companion and HFP fallback paths.
+  Other headsets use available standard battery sources and a generic prior.
 
 A sibling of [gnome-dota-time](https://github.com/lilter96/gnome-dota-time):
 the same spring animation and the same approach to a character, with Roshan

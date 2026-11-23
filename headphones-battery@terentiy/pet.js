@@ -73,8 +73,11 @@ export const MOODS = [
     {min: 0, color: hex('#ff453a'), energy: 0.32},
 ];
 
+// Missing battery/forecast is not a flat battery (red) or a full one (green).
+export const NEUTRAL_COLOR = hex('#a9b2c5');
+
 export function moodFor(hours) {
-    if (!(hours >= 0))
+    if (!Number.isFinite(hours) || hours < 0)
         return 0;
     return MOODS.findIndex(m => hours >= m.min);
 }
@@ -322,9 +325,10 @@ export class Pet {
         this.rand = random;
         this.reduced = reducedMotion;
         this.t = 0;
-        this.state = {level: 0, lo: 0, hi: 0, precise: true, hours: 10, playing: false, volume: 0.5};
+        this.state = {level: 0, lo: 0, hi: 0, precise: true, hours: 10, playing: false, volume: 0.5, batteryKnown: true};
         this.idleFor = 0;
         this.mood = 0;
+        this._moodKnown = true;
         this.particles = [];
         this.next = {blink: 1.2, glance: 0.8, squint: 3, twitch: 6, yawn: 20, note: 0, z: 0.4};
         this.blinkAt = -1;
@@ -361,18 +365,20 @@ export class Pet {
         return !this.state.playing && this.idleFor >= SLEEP_AFTER && this.t >= this.wakeUntil;
     }
 
-    // state: {level, lo, hi, precise, hours, playing, volume, idleFor}
+    // state: {level, lo, hi, precise, hours|null, batteryKnown, playing, volume, idleFor}
     update(state) {
         const wasSleeping = this.sleeping;
         const oldMood = this.mood;
         Object.assign(this.state, state);
         if (state.idleFor !== undefined)
             this.idleFor = state.idleFor;
-        this.mood = moodFor(this.state.hours);
+        this._moodKnown = this.state.batteryKnown !== false &&
+            Number.isFinite(this.state.hours) && this.state.hours >= 0;
+        this.mood = this._moodKnown ? moodFor(this.state.hours) : 0;
         // the first mood is where we start, not a change to animate
         if (!this._colored) {
             this._colored = true;
-            aimColor([this.s.cL, this.s.cC, this.s.ch], MOODS[this.mood].color, true);
+            aimColor([this.s.cL, this.s.cC, this.s.ch], this._moodKnown ? MOODS[this.mood].color : NEUTRAL_COLOR, true);
         }
         if (this.mood === 3 && oldMood !== 3)
             this.s.plumbK.kick(4);
@@ -449,9 +455,9 @@ export class Pet {
         if (!st.playing)
             this.idleFor += dt;
 
-        aimColor([s.cL, s.cC, s.ch], m.color);
-        s.ring.to(st.precise ? st.level : st.lo);
-        s.ringHi.to(st.precise ? st.level : st.hi);
+        aimColor([s.cL, s.cC, s.ch], this._moodKnown ? m.color : NEUTRAL_COLOR);
+        s.ring.to(st.batteryKnown === false ? 0 : st.precise ? st.level : st.lo);
+        s.ringHi.to(st.batteryKnown === false ? 0 : st.precise ? st.level : st.hi);
         s.plumbY.to(0);
         s.plumbA.to(1);
         s.plumbK.to(1);
@@ -588,8 +594,8 @@ export class Pet {
         return {
             t: this.t,
             color: this.color,
-            ring: s.ring.x,
-            ringHi: s.ringHi.x,
+            ring: this.state.batteryKnown === false ? 0 : s.ring.x,
+            ringHi: this.state.batteryKnown === false ? 0 : s.ringHi.x,
             plumb: {
                 x: s.plumbX.x,
                 y: s.plumbY.x + 2.6 * s.breathAmp.x * Math.sin(this.t * TAU / 2.6),
